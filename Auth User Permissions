@@ -1,0 +1,5 @@
+// RLS Policy that allow All auth users to add to the table
+
+BEGIN;
+  ALTER POLICY "All Can Add " ON "public"."Address" WITH CHECK ((auth.uid() IS NOT NULL) );
+COMMIT;
