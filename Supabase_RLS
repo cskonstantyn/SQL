@@ -1,0 +1,52 @@
+// Here we create a suparbase RLS policy that checks if auth user has a specific email and if the user does then he/she can perform any action on that table, if not they are denied 
+
+BEGIN;
+  ALTER POLICY "Admin Can Do All" ON "public"."Pass Appearance" USING ((auth.email() = 'myemail@gmail.coom'::text));
+COMMIT;
+
+
+// Supabase RLS policy that checks if the user is auth and it checks the user JWT token to make sure that in their metadata they have country text field and that it is equal to 
+// Canada In this example you can replace any other country name
+
+BEGIN;
+  ALTER POLICY "Metadata to get Country" ON "public"."Address" USING ((((auth.jwt() -> 'user_metadata'::text) ->> 'country'::text) = 'Canada'::text));
+COMMIT;
+
+
+// You can also use this RLS to check the user app version like this
+
+
+BEGIN;
+  ALTER POLICY "Version Check" ON "public"."Applicants" USING ((((auth.jwt() -> 'user_metadata'::text) ->> 'app_version'::text) = 'Beta'::text));
+COMMIT;
+
+
+// In some cases you want to ensure that the person who deletes or updates the data can perform that action like a Brand manager. In this case, I hold an additional column calling it in this case Brand_manager
+// When a user creates a new table we will store the current auth user ID in Brand_manager and next time if the person decides to update or delete, the rls will check if the auth user is equal to the Brand_manager ID
+// that we stored before. If it is not equal that means someone else who is unauthorised trying to do that and RLS will not allow this to happen and prevent this on the database level. We also use 'AND' in this
+// rls so that we can not just check on the Brand_manager id but at the same time they must have a role that is equal to Brand in their JWT token this is a double measure to make sure that this person is
+// a brand-type role and have the brand manager id of this specific brand and not another brand. 
+
+BEGIN;
+  ALTER POLICY "Auth Brand Can do All" ON "public"."Brand" USING (((((auth.jwt() -> 'user_metadata'::text) ->> 'role'::text) = 'Brand '::text) AND ("Brand_manager" = auth.uid())));
+COMMIT;
+
+
+
+// This RLS requires 3 tables to work and it is used in the case when you want to use public tables to check the user roles before giving any kind of permission to the user. So let's say you have 3 user types
+// admin, mod, and regular user and you do not want the regular user to be able to delete the rows, you can establish the rules that would prevent the user with the role -  regular user from performing the delete action
+
+BEGIN;
+  ALTER POLICY "Creator Role Auth User Can Insert" ON "public"."deals" WITH CHECK ((EXISTS ( SELECT 1 FROM (users JOIN roles ON ((users.roles = roles.role_idd))) WHERE ((roles.role_name = 'creator'::app_role) AND (users.uid = auth.uid())))));
+COMMIT;
+
+
+// Now we can make more complex RLS. Sometimes we want to check the status of a subscription like if the user has a free or pro plan and based on this we want to allow them to make or deny their action but we also
+// want to make sure to limit the number of times they can act. In this case, we are creating RLS on the My Pass table that checks that I have a count = 3 and that my JWT holds the status of a PRO user
+
+
+(((( SELECT subscription.passes_countt
+   FROM subscription
+  WHERE ("My Pass"."Account ID" = auth.uid())) IS NULL) OR (( SELECT subscription.passes_count
+   FROM subscription
+  WHERE ("My Pass"."Account ID" = auth.uid())) = ANY (ARRAY[1, 2]))) AND (((auth.jwt() -> 'user_metadata'::text) ->> 'subscription'::text) = 'Pro'::text))
