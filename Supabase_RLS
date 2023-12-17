@@ -41,7 +41,7 @@ BEGIN;
 COMMIT;
 
 
-// Now we can make more complex RLS. Sometimes we want to check the status of a subscription like if the user has a free or pro plan and based on this we want to allow them to make or deny their action but we also
+// Now we can make more complex RLS. Sometimes we want to check the status of a subscription-like if the user has a free or pro plan and based on this we want to allow them to make or deny their action but we also
 // want to make sure to limit the number of times they can act. In this case, we are creating RLS on the My Pass table that checks that I have a count = 3 and that my JWT holds the status of a PRO user
 
 
@@ -50,3 +50,94 @@ COMMIT;
   WHERE ("My Pass"."Account ID" = auth.uid())) IS NULL) OR (( SELECT subscription.passes_count
    FROM subscription
   WHERE ("My Pass"."Account ID" = auth.uid())) = ANY (ARRAY[1, 2]))) AND (((auth.jwt() -> 'user_metadata'::text) ->> 'subscription'::text) = 'Pro'::text))
+
+// This policy is designed to check on multiple conditions. In this case, we want to limit a user on how many rows can the user insert. It checks the 
+// role user has as well as user plan before allowing the user to insert If the subscription type is ‘Free’, the user can insert up to 1 row.
+// If the subscription type is ‘Pro’, the user can insert up to 3 rows.
+// If the subscription type is ‘Premium’, the user can insert up to 5 rows.
+
+
+CREATE POLICY "Widgets Belong To User" 
+ON "public"."Widget_Block" 
+FOR INSERT 
+WITH CHECK (
+  (
+    EXISTS (
+      SELECT 1 
+      FROM "public"."Link In Bio" 
+      WHERE (
+        "Link In Bio"."uid" = auth.uid() 
+        AND "Widget_Block"."link_in_bio_ref" = "Link In Bio"."uid"
+      )
+    )
+  ) 
+  AND 
+  (
+    CASE
+      WHEN (
+        SELECT "subscription"."type" 
+        FROM "public"."subscription" 
+        WHERE "subscription"."customer" = (
+          SELECT "users"."customer" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = "subscription"."customer"
+        )
+      ) = 'Free' THEN (
+        SELECT COUNT(*) 
+        FROM "public"."Widget_Block" 
+        WHERE "Widget_Block"."link_in_bio_ref" = (
+          SELECT "users"."link_in_bio" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = (
+            SELECT "subscription"."customer" 
+            FROM "public"."subscription" 
+            WHERE "subscription"."customer" = "users"."customer"
+          )
+        )
+      ) <= 1
+      WHEN (
+        SELECT "subscription"."type" 
+        FROM "public"."subscription" 
+        WHERE "subscription"."customer" = (
+          SELECT "users"."customer" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = "subscription"."customer"
+        )
+      ) = 'Pro' THEN (
+        SELECT COUNT(*) 
+        FROM "public"."Widget_Block" 
+        WHERE "Widget_Block"."link_in_bio_ref" = (
+          SELECT "users"."link_in_bio" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = (
+            SELECT "subscription"."customer" 
+            FROM "public"."subscription" 
+            WHERE "subscription"."customer" = "users"."customer"
+          )
+        )
+      ) <= 3
+      WHEN (
+        SELECT "subscription"."type" 
+        FROM "public"."subscription" 
+        WHERE "subscription"."customer" = (
+          SELECT "users"."customer" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = "subscription"."customer"
+        )
+      ) = 'Premium' THEN (
+        SELECT COUNT(*) 
+        FROM "public"."Widget_Block" 
+        WHERE "Widget_Block"."link_in_bio_ref" = (
+          SELECT "users"."link_in_bio" 
+          FROM "public"."users" 
+          WHERE "users"."customer" = (
+            SELECT "subscription"."customer" 
+            FROM "public"."subscription" 
+            WHERE "subscription"."customer" = "users"."customer"
+          )
+        )
+      ) <= 5
+    END
+  )
+);
+
